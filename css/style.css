@@ -1,0 +1,80 @@
+body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background-color: #f0f0f0;
+}
+
+#game-container {
+    text-align: center;
+}
+
+.board {
+    display: inline-grid;
+    grid-template-columns: repeat(10, 40px);
+    grid-gap: 1px;
+    background-color: #0077be;
+    padding: 10px;
+    border-radius: 5px;
+    margin: 10px;
+}
+
+.cell {
+    width: 40px;
+    height: 40px;
+    background-color: #ffffff;
+    border: 1px solid #0077be;
+    cursor: pointer;
+    font-size: 24px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.3s ease;
+}
+
+.cell.miss {
+    background-color: #ccffff;
+}
+
+.cell.hit {
+    background-color: #ffcccc;
+}
+
+.cell.sunk {
+    background-color: #ff9999;
+}
+
+.cell.ship {
+    background-color: #808080;
+}
+
+#game-info {
+    margin-top: 20px;
+    font-size: 20px;
+}
+
+#turn-arrow {
+    font-size: 30px;
+    margin: 0 10px;
+    vertical-align: middle;
+}
+
+button {
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    margin: 10px;
+}
+
+input {
+    padding: 10px;
+    font-size: 16px;
+    margin: 10px;
+}
