@@ -9,6 +9,7 @@ class UI {
         this.opponentBoard = document.getElementById('opponent-board');
         this.turnInfo = document.getElementById('turn-info');
         this.turnArrow = document.getElementById('turn-arrow');
+        this.endScreenShown = false;
     }
 
     showWaitingScreen(gameCode) {
@@ -101,24 +102,35 @@ class UI {
     }
 
     showEndScreen(isWinner) {
+        if (this.endScreenShown) return; // Предотвращаем повторный вызов
+        this.endScreenShown = true;
+
         this.gameScreen.style.display = 'none';
         this.endScreen.style.display = 'block';
         const resultElement = document.getElementById('result');
         resultElement.textContent = isWinner ? 'Вы победили!' : 'Вы проиграли!';
         resultElement.style.color = isWinner ? 'green' : 'red';
         
-        const countdownElement = document.createElement('div');
-        countdownElement.id = 'countdown';
-        this.endScreen.appendChild(countdownElement);
+        const countdownElement = document.getElementById('countdown');
+        if (!countdownElement) {
+            const newCountdownElement = document.createElement('div');
+            newCountdownElement.id = 'countdown';
+            this.endScreen.appendChild(newCountdownElement);
+        }
         
         let countdown = 3;
         const updateCountdown = () => {
-            countdownElement.textContent = `Перенаправление через ${countdown} секунды...`;
-            if (countdown <= 0) {
+            const element = document.getElementById('countdown');
+            if (element) {
+                element.textContent = `Перенаправление через ${countdown} секунды...`;
+                if (countdown <= 0) {
+                    clearInterval(countdownInterval);
+                    window.location.href = '/';
+                }
+                countdown--;
+            } else {
                 clearInterval(countdownInterval);
-                window.location.href = '/'; // Замените на URL вашей главной страницы
             }
-            countdown--;
         };
         
         updateCountdown();

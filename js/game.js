@@ -9,9 +9,10 @@ class Game {
         this.lastEventId = 0;
         this.isPolling = false;
         this.gameStarted = false;
-        this.shipSizes = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]; // Размеры кораблей
-        this.totalShipCells = this.shipSizes.reduce((a, b) => a + b, 0); // Общее количество клеток кораблей
-        this.sunkShipCells = {1: 0, 2: 0}; // Счетчик потопленных клеток кораблей для каждого игрока
+        this.shipSizes = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+        this.totalShipCells = this.shipSizes.reduce((a, b) => a + b, 0);
+        this.sunkShipCells = {1: 0, 2: 0};
+        this.gameEnded = false;
     }
 
     async createGame() {
@@ -280,11 +281,13 @@ class Game {
     }
 
     endGame(winner) {
+        if (this.gameEnded) return;
+        this.gameEnded = true;
+
         this.isPolling = false;
         const isWinner = winner === this.player;
         this.ui.showEndScreen(isWinner);
         
-        // Отправляем событие окончания игры на сервер
         API.endGame(this.gameCode);
     }
 }
