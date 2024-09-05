@@ -9,6 +9,9 @@ class Game {
         this.lastEventId = 0;
         this.isPolling = false;
         this.gameStarted = false;
+        this.shipSizes = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1]; // Размеры кораблей
+        this.totalShipCells = this.shipSizes.reduce((a, b) => a + b, 0); // Общее количество клеток кораблей
+        this.sunkShipCells = {1: 0, 2: 0}; // Счетчик потопленных клеток кораблей для каждого игрока
     }
 
     async createGame() {
@@ -18,8 +21,8 @@ class Game {
                 this.gameCode = response.gameCode;
                 this.player = 1;
                 this.playerBoard.grid = response.player1Board;
-                this.ui.showGameCode(this.gameCode);
-                await this.waitForOpponent();
+                this.opponentBoard.clear();
+                return this.gameCode;
             } else {
                 this.ui.showError('Failed to create game');
             }
@@ -27,6 +30,7 @@ class Game {
             console.error('Error creating game:', error);
             this.ui.showError('Error creating game');
         }
+        return null;
     }
 
     async joinGame(code) {
@@ -36,7 +40,7 @@ class Game {
                 this.gameCode = code;
                 this.player = 2;
                 this.playerBoard.grid = response.player2Board;
-                console.log('Successfully joined game, starting...');
+                this.opponentBoard.clear();
                 await this.startGame();
             } else {
                 this.ui.showError(response.message || 'Failed to join game');
@@ -47,14 +51,17 @@ class Game {
         }
     }
 
+    setOpponentBoard(board) {
+        this.opponentBoard.grid = board;
+        this.ui.renderBoards();
+    }
+
     async waitForOpponent() {
-        this.ui.showWaitingScreen();
-        console.log('Waiting for opponent...');
+        this.ui.showWaitingScreen(this.gameCode);
         while (!this.gameStarted) {
             try {
                 const data = await this.getGameState();
                 if (data.status === 'active') {
-                    console.log('Game is active, starting the game');
                     this.startGame();
                     break;
                 }
@@ -66,15 +73,9 @@ class Game {
     }
 
     async startGame() {
-        console.log('Starting the game');
-        console.log('Player:', this.player);
-        
         this.gameStarted = true;
-        this.playerBoard.randomizeShips();
-        this.opponentBoard.clear();
-        this.currentPlayer = 1; // Всегда начинает первый игрок
-        console.log('Current player:', this.currentPlayer);
-
+        this.currentPlayer = 1;
+    
         this.ui.hideWaitingScreen();
         this.ui.updateGameScreen();
         this.ui.renderBoards();
@@ -85,7 +86,6 @@ class Game {
 
     updateTurnInfo() {
         const isPlayerTurn = this.currentPlayer === this.player;
-        console.log('Updating turn info. Current player:', this.currentPlayer, 'This player:', this.player);
         this.ui.updateTurnInfo(isPlayerTurn);
     }
 
@@ -94,17 +94,20 @@ class Game {
             console.log('Не ваш ход');
             return;
         }
-    
+
+        if (this.opponentBoard.grid[y][x] !== null && this.opponentBoard.grid[y][x] !== 'ship') {
+            // Клетка уже была атакована, просто игнорируем
+            return;
+        }
+
         try {
             const response = await API.makeMove(this.gameCode, this.player, x, y);
             if (response.success) {
-                console.log('Move result:', response);
-                this.handleMoveResult(response.result, x, y, this.opponentBoard);
+                this.handleMoveResult(this.player, x, y, response.result);
                 this.currentPlayer = response.newPlayer;
                 this.updateTurnInfo();
-                this.ui.renderBoards();
             } else {
-                this.ui.showError(response.message || 'Error making move');
+                console.error(response.message);
             }
         } catch (error) {
             console.error('Error making move:', error);
@@ -112,42 +115,71 @@ class Game {
         }
     }
 
-    handleMoveResult(result, x, y, board) {
-        console.log('Updating board:', result, x, y, board);
-        if (board && board.updateCell) {
-            board.updateCell(x, y, result);
-            this.ui.updateCell(board, x, y, result);
-            if (result === 'sunk') {
-                this.markSunkShipArea(board, x, y);
+    handleMoveEvent(eventData) {
+        const { player, x, y, result, newPlayer } = eventData;
+        this.handleMoveResult(parseInt(player), parseInt(x), parseInt(y), result);
+        this.currentPlayer = parseInt(newPlayer);
+        this.updateTurnInfo();
+    }
+
+    handleMoveResult(player, x, y, result) {
+        const board = player === this.player ? this.opponentBoard : this.playerBoard;
+        
+        const previousState = board.grid[y][x];
+        board.updateCell(x, y, result);
+        this.ui.updateCellDisplay(board, x, y, result);
+    
+        if (result === 'hit' && previousState !== 'hit') {
+            this.sunkShipCells[player]++;
+        } else if (result === 'sunk') {
+            const sunkCells = board.markSunkShipArea(x, y);
+            const newSunkCells = sunkCells.filter(([sx, sy]) => board.grid[sy][sx] !== 'sunk').length;
+            this.sunkShipCells[player] += newSunkCells;
+            
+            sunkCells.forEach(([sx, sy]) => {
+                board.updateCell(sx, sy, 'sunk');
+                this.ui.updateCellDisplay(board, sx, sy, 'sunk');
+            });
+            
+            // Обновляем клетки вокруг потопленного корабля
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx >= 0 && nx < board.size && ny >= 0 && ny < board.size && board.grid[ny][nx] === null) {
+                        board.updateCell(nx, ny, 'miss');
+                        this.ui.updateCellDisplay(board, nx, ny, 'miss');
+                    }
+                }
             }
-        } else {
-            console.error('Invalid board in handleMoveResult');
         }
+    
+        if (this.sunkShipCells[player] >= this.totalShipCells) {
+            this.endGame(player);
+        }
+        
+        this.ui.renderBoards();
     }
 
     markSunkShipArea(board, x, y) {
         const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
         const shipCells = [];
+        const visited = new Set();
         
         const checkCell = (x, y) => {
+            const key = `${x},${y}`;
+            if (visited.has(key)) return;
+            visited.add(key);
+            
             if (x >= 0 && x < board.size && y >= 0 && y < board.size && (board.grid[y][x] === 'hit' || board.grid[y][x] === 'sunk')) {
                 shipCells.push([x, y]);
                 board.grid[y][x] = 'sunk';
                 this.ui.updateCell(board, x, y, 'sunk');
-                return true;
+                directions.forEach(([dx, dy]) => checkCell(x + dx, y + dy));
             }
-            return false;
         };
     
-        const stack = [[x, y]];
-        while (stack.length > 0) {
-            const [cx, cy] = stack.pop();
-            if (checkCell(cx, cy)) {
-                directions.forEach(([dx, dy]) => {
-                    stack.push([cx + dx, cy + dy]);
-                });
-            }
-        }
+        checkCell(x, y);
     
         shipCells.forEach(([sx, sy]) => {
             for (let dx = -1; dx <= 1; dx++) {
@@ -193,7 +225,6 @@ class Game {
     }
 
     handleEvents(events) {
-        console.log('Handling events:', events);
         if (!Array.isArray(events)) {
             console.error('Events is not an array:', events);
             return;
@@ -214,8 +245,6 @@ class Game {
                     case 'gameOver':
                         this.handleGameOverEvent(eventData);
                         break;
-                    default:
-                        console.warn('Unknown event type:', event.event_type);
                 }
             } catch (error) {
                 console.error('Error handling event:', error, event);
@@ -224,21 +253,9 @@ class Game {
     }
 
     handleGameStartEvent(eventData) {
-        console.log('Handling gameStart event');
         if (!this.gameStarted) {
             this.startGame();
         }
-    }
-
-    handleMoveEvent(eventData) {
-        console.log('Handling move event:', eventData);
-        const { player, x, y, result, newPlayer } = eventData;
-        const boardToUpdate = parseInt(player) !== this.player ? this.playerBoard : this.opponentBoard;
-        
-        this.handleMoveResult(result, parseInt(x), parseInt(y), boardToUpdate);
-        this.currentPlayer = parseInt(newPlayer);
-        this.updateTurnInfo();
-        this.ui.renderBoards();
     }
 
     handleTurnChangeEvent(eventData) {
@@ -251,8 +268,23 @@ class Game {
         this.endGame(winner);
     }
 
+    checkGameOver(board) {
+        for (let y = 0; y < board.size; y++) {
+            for (let x = 0; x < board.size; x++) {
+                if (board.grid[y][x] === 'ship') {
+                    return false; // Найден живой корабль
+                }
+            }
+        }
+        return true; // Все корабли уничтожены
+    }
+
     endGame(winner) {
         this.isPolling = false;
-        this.ui.showEndScreen(winner === this.player);
+        const isWinner = winner === this.player;
+        this.ui.showEndScreen(isWinner);
+        
+        // Отправляем событие окончания игры на сервер
+        API.endGame(this.gameCode);
     }
 }

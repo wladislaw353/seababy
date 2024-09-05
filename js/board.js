@@ -9,67 +9,54 @@ class Board {
         return Array(this.size).fill().map(() => Array(this.size).fill(null));
     }
 
-    randomizeShips() {
-        this.clear();
-        const shipSizes = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
-        for (let size of shipSizes) {
-            let placed = false;
-            while (!placed) {
-                const x = Math.floor(Math.random() * this.size);
-                const y = Math.floor(Math.random() * this.size);
-                const horizontal = Math.random() < 0.5;
-                if (this.canPlaceShip(x, y, size, horizontal)) {
-                    this.placeShip(x, y, size, horizontal);
-                    placed = true;
+    updateCell(x, y, state) {
+        if (x >= 0 && x < this.size && y >= 0 && y < this.size) {
+            if (state === 'hit' && (this.grid[y][x] === 'ship' || this.grid[y][x] === null)) {
+                this.grid[y][x] = 'hit';
+            } else if (state === 'miss' && (this.grid[y][x] === null || this.grid[y][x] === 'ship')) {
+                this.grid[y][x] = 'miss';
+            } else if (state === 'sunk') {
+                this.grid[y][x] = 'sunk';
+            }
+        }
+    }
+
+    markSunkShipArea(x, y) {
+        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+        const shipCells = [];
+        const visited = new Set();
+        
+        const checkCell = (cx, cy) => {
+            const key = `${cx},${cy}`;
+            if (visited.has(key)) return;
+            visited.add(key);
+            
+            if (cx >= 0 && cx < this.size && cy >= 0 && cy < this.size) {
+                if (this.grid[cy][cx] === 'hit' || this.grid[cy][cx] === 'ship' || this.grid[cy][cx] === 'sunk') {
+                    shipCells.push([cx, cy]);
+                    directions.forEach(([dx, dy]) => checkCell(cx + dx, cy + dy));
                 }
             }
-        }
-    }
-
-    canPlaceShip(x, y, size, horizontal) {
-        for (let i = 0; i < size; i++) {
-            const checkX = horizontal ? x + i : x;
-            const checkY = horizontal ? y : y + i;
-            if (checkX >= this.size || checkY >= this.size || this.grid[checkY][checkX] !== null) {
-                return false;
-            }
-            if (!this.checkSurroundingCells(checkX, checkY)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    checkSurroundingCells(x, y) {
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dy = -1; dy <= 1; dy++) {
-                const checkX = x + dx;
-                const checkY = y + dy;
-                if (checkX >= 0 && checkX < this.size && checkY >= 0 && checkY < this.size) {
-                    if (this.grid[checkY][checkX] !== null) {
-                        return false;
+        };
+    
+        checkCell(x, y);
+    
+        // Отмечаем все клетки вокруг корабля как 'miss'
+        shipCells.forEach(([sx, sy]) => {
+            for (let dx = -1; dx <= 1; dx++) {
+                for (let dy = -1; dy <= 1; dy++) {
+                    const nx = sx + dx;
+                    const ny = sy + dy;
+                    if (nx >= 0 && nx < this.size && ny >= 0 && ny < this.size) {
+                        if (this.grid[ny][nx] === null) {
+                            this.grid[ny][nx] = 'miss';
+                        }
                     }
                 }
             }
-        }
-        return true;
-    }
-
-    placeShip(x, y, size, horizontal) {
-        for (let i = 0; i < size; i++) {
-            const placeX = horizontal ? x + i : x;
-            const placeY = horizontal ? y : y + i;
-            this.grid[placeY][placeX] = 'ship';
-        }
-    }
-
-    updateCell(x, y, state) {
-        if (x >= 0 && x < this.size && y >= 0 && y < this.size) {
-            this.grid[y][x] = state;
-            console.log(`Updated cell at (${x}, ${y}) to ${state}`);
-        } else {
-            console.error('Invalid cell coordinates:', x, y);
-        }
+        });
+    
+        return shipCells;
     }
 
     clear() {

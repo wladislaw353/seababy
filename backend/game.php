@@ -20,22 +20,35 @@ class Game {
         if ($game && $game['status'] === 'waiting') {
             $this->db->query("UPDATE games SET status = 'active' WHERE game_code = ?", [$gameCode]);
             $this->addEvent($game['id'], 'gameStart', json_encode(['message' => 'Game started']));
+            
+            // Отправляем доску противника первому игроку
+            $this->addEvent($game['id'], 'opponentBoard', json_encode([
+                'player' => 1,
+                'board' => json_decode($game['player2_board'], true)
+            ]));
+            
+            // Отправляем доску противника второму игроку
+            $this->addEvent($game['id'], 'opponentBoard', json_encode([
+                'player' => 2,
+                'board' => json_decode($game['player1_board'], true)
+            ]));
+            
             return [
                 'success' => true, 
                 'message' => 'Joined successfully', 
                 'player2Board' => json_decode($game['player2_board'], true)
             ];
         } elseif ($game && $game['status'] === 'active') {
-            return ['success' => false, 'message' => 'Game already started'];
+            return ['success' => false, 'message' => 'Игра уже началась'];
         } else {
-            return ['success' => false, 'message' => 'Game not found'];
+            return ['success' => false, 'message' => 'Игровая комната не найдена'];
         }
     }
 
     public function getGameState($gameCode, $lastEventId) {
         $game = $this->db->query("SELECT * FROM games WHERE game_code = ?", [$gameCode])->fetch();
         if (!$game) {
-            return ['success' => false, 'message' => 'Game not found'];
+            return ['success' => false, 'message' => 'Игровая комната не найдена'];
         }
         
         $events = $this->db->query("SELECT id, event_type, event_data FROM game_events WHERE game_id = ? AND id > ? ORDER BY id ASC", 
@@ -66,6 +79,15 @@ class Game {
             $opponentBoard[$y][$x] = 'hit';
             if ($this->checkShipSunk($opponentBoard, $x, $y)) {
                 $result = 'sunk';
+                $this->markSunkShip($opponentBoard, $x, $y);
+            }
+        } elseif ($opponentBoard[$y][$x] === 'hit') {
+            // Если клетка уже была подбита, проверяем, не потоплен ли корабль теперь
+            if ($this->checkShipSunk($opponentBoard, $x, $y)) {
+                $result = 'sunk';
+                $this->markSunkShip($opponentBoard, $x, $y);
+            } else {
+                $result = 'hit';
             }
         } else {
             return ['success' => false, 'message' => 'Invalid move'];
@@ -83,52 +105,98 @@ class Game {
             'x' => $x,
             'y' => $y,
             'result' => $result,
-            'newPlayer' => $newPlayer
+            'newPlayer' => $newPlayer,
+            'opponentBoard' => $opponentBoard
         ]));
     
         return ['success' => true, 'result' => $result, 'newPlayer' => $newPlayer];
     }
-
-    private function checkShipSunk($board, $x, $y) {
+    
+    private function markSunkShip(&$board, $x, $y) {
         $directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
-        foreach ($directions as $dir) {
-            $newX = $x + $dir[0];
-            $newY = $y + $dir[1];
-            if ($newX >= 0 && $newX < 10 && $newY >= 0 && $newY < 10 && $board[$newY][$newX] === 'ship') {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private function checkGameOver($board) {
-        for ($y = 0; $y < 10; $y++) {
-            for ($x = 0; $x < 10; $x++) {
-                if ($board[$y][$x] === 'ship') {
-                    return false;
+        $shipCells = [];
+        $visited = [];
+    
+        $stack = [[$x, $y]];
+        while (!empty($stack)) {
+            list($cx, $cy) = array_pop($stack);
+            if (isset($visited["$cx,$cy"])) continue;
+            $visited["$cx,$cy"] = true;
+    
+            if ($board[$cy][$cx] === 'hit' || $board[$cy][$cx] === 'ship') {
+                $shipCells[] = [$cx, $cy];
+                $board[$cy][$cx] = 'sunk';
+                foreach ($directions as $dir) {
+                    $nx = $cx + $dir[0];
+                    $ny = $cy + $dir[1];
+                    if ($nx >= 0 && $nx < 10 && $ny >= 0 && $ny < 10) {
+                        $stack[] = [$nx, $ny];
+                    }
                 }
             }
         }
-        return true;
+    
+        // Mark surrounding cells as 'miss'
+        foreach ($shipCells as $cell) {
+            list($sx, $sy) = $cell;
+            for ($dx = -1; $dx <= 1; $dx++) {
+                for ($dy = -1; $dy <= 1; $dy++) {
+                    $nx = $sx + $dx;
+                    $ny = $sy + $dy;
+                    if ($nx >= 0 && $nx < 10 && $ny >= 0 && $ny < 10 && ($board[$ny][$nx] === null || $board[$ny][$nx] === 'ship')) {
+                        $board[$ny][$nx] = 'miss';
+                    }
+                }
+            }
+        }
+    }
+
+    private function checkShipSunk($board, $x, $y) {
+        $directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+        $stack = [[$x, $y]];
+        $visited = [];
+    
+        while (!empty($stack)) {
+            list($cx, $cy) = array_pop($stack);
+            $key = "$cx,$cy";
+            if (isset($visited[$key])) continue;
+            $visited[$key] = true;
+    
+            if ($board[$cy][$cx] === 'ship') {
+                return false; // Найдена неподбитая часть корабля
+            }
+    
+            if ($board[$cy][$cx] === 'hit') {
+                foreach ($directions as $dir) {
+                    $nx = $cx + $dir[0];
+                    $ny = $cy + $dir[1];
+                    if ($nx >= 0 && $nx < 10 && $ny >= 0 && $ny < 10 && !isset($visited["$nx,$ny"])) {
+                        $stack[] = [$nx, $ny];
+                    }
+                }
+            }
+        }
+    
+        return true; // Все части корабля подбиты
     }
 
     public function endGame($gameCode) {
         $game = $this->db->query("SELECT * FROM games WHERE game_code = ?", [$gameCode])->fetch();
         if (!$game) {
-            return ['success' => false, 'message' => 'Game not found'];
+            return ['success' => false, 'message' => 'Игровая комната не найдена'];
         }
-
+    
         if ($game['status'] === 'finished') {
-            return ['success' => true, 'message' => 'Game was already finished'];
+            return ['success' => true, 'message' => 'Игра завершена'];
         }
-
+    
         $this->db->query("UPDATE games SET status = 'finished' WHERE id = ?", [$game['id']]);
         
         $this->addEvent($game['id'], 'gameOver', json_encode([
-            'message' => 'Game ended manually'
+            'message' => 'Игра завершена'
         ]));
-
-        return ['success' => true, 'message' => 'Game ended successfully'];
+    
+        return ['success' => true, 'message' => 'Игра завершена'];
     }
 
     private function generateRandomBoard() {

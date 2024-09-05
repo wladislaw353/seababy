@@ -11,11 +11,12 @@ class UI {
         this.turnArrow = document.getElementById('turn-arrow');
     }
 
-    showWaitingScreen() {
+    showWaitingScreen(gameCode) {
         this.startScreen.style.display = 'none';
         this.waitingScreen.style.display = 'block';
         this.gameScreen.style.display = 'none';
         this.endScreen.style.display = 'none';
+        document.getElementById('waiting-game-code').textContent = gameCode;
     }
 
     hideWaitingScreen() {
@@ -38,97 +39,63 @@ class UI {
     }
 
     renderBoards() {
-        this.renderBoard(this.playerBoard, this.game.playerBoard, true);
-        this.renderBoard(this.opponentBoard, this.game.opponentBoard, false);
+        this.renderBoard(this.playerBoard, this.game.playerBoard.grid, true);
+        this.renderBoard(this.opponentBoard, this.game.opponentBoard.grid, false);
     }
 
-    renderBoard(element, board, isPlayer) {
+    renderBoard(element, board, isPlayerBoard) {
         element.innerHTML = '';
-        for (let y = 0; y < board.size; y++) {
-            for (let x = 0; x < board.size; x++) {
+        for (let y = 0; y < board.length; y++) {
+            for (let x = 0; x < board[y].length; x++) {
                 const cell = document.createElement('div');
                 cell.classList.add('cell');
-                const cellState = board.grid[y][x];
-                if (isPlayer && cellState === 'ship') {
-                    cell.classList.add('ship');
+                const cellState = board[y][x];
+                
+                if (isPlayerBoard || cellState === 'hit' || cellState === 'miss' || cellState === 'sunk') {
+                    cell.classList.add(cellState || 'empty');
+                    cell.textContent = this.getCellEmoji(cellState, isPlayerBoard);
                 }
-                cell.textContent = this.getCellEmoji(cellState);
-                if (!isPlayer) {
+                
+                if (!isPlayerBoard && cellState !== 'hit' && cellState !== 'miss' && cellState !== 'sunk') {
                     cell.addEventListener('click', () => this.game.makeMove(x, y));
                 }
+                
                 element.appendChild(cell);
             }
         }
     }
 
-    updateCell(board, x, y, result) {
-        console.log('UI updating cell:', board, x, y, result);
-        const isPlayer = board === this.game.playerBoard;
-        const boardElement = isPlayer ? this.playerBoard : this.opponentBoard;
+    updateCellDisplay(board, x, y, state) {
+        const isPlayerBoard = board === this.game.playerBoard;
+        const boardElement = isPlayerBoard ? this.playerBoard : this.opponentBoard;
         const index = y * board.size + x;
         if (index >= 0 && index < boardElement.children.length) {
             const cell = boardElement.children[index];
-            cell.textContent = this.getCellEmoji(result);
-            cell.className = 'cell';
-            cell.classList.add(result);
-        } else {
-            console.error('Invalid cell index:', index);
+            const emoji = this.getCellEmoji(state, isPlayerBoard);
+            cell.textContent = emoji;
+            cell.className = 'cell ' + state;
+            
+            // Форсируем перерисовку
+            void cell.offsetWidth;
         }
     }
 
-    markSunkShipArea(board, x, y) {
-        const directions = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
-        const shipCells = this.findShipCells(board, x, y);
-        
-        shipCells.forEach(([shipX, shipY]) => {
-            directions.forEach(([dx, dy]) => {
-                const newX = shipX + dx;
-                const newY = shipY + dy;
-                if (newX >= 0 && newX < board.size && newY >= 0 && newY < board.size) {
-                    if (board.grid[newY][newX] === null || board.grid[newY][newX] === 'ship') {
-                        board.grid[newY][newX] = 'miss';
-                        this.updateCell(board, newX, newY, 'miss');
-                    }
-                }
-            });
-            board.grid[shipY][shipX] = 'sunk';
-            this.updateCell(board, shipX, shipY, 'sunk');
-        });
-    }
-
-    findShipCells(board, x, y) {
-        const shipCells = [[x, y]];
-        const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
-        
-        directions.forEach(([dx, dy]) => {
-            let newX = x + dx;
-            let newY = y + dy;
-            while (newX >= 0 && newX < board.size && newY >= 0 && newY < board.size) {
-                if (board.grid[newY][newX] === 'hit' || board.grid[newY][newX] === 'ship') {
-                    shipCells.push([newX, newY]);
-                    newX += dx;
-                    newY += dy;
-                } else {
-                    break;
-                }
-            }
-        });
-        
-        return shipCells;
-    }
-
-    getCellEmoji(result) {
-        switch (result) {
-            case 'miss': return '🌊';
-            case 'hit': return '💥';
-            case 'sunk': return '❌';
-            case 'ship': return '🚢';
-            default: return '';
+    getCellEmoji(cellState, isPlayerBoard) {
+        switch (cellState) {
+            case 'ship':
+                return isPlayerBoard ? '🚢' : '';
+            case 'miss':
+                return '🌊';
+            case 'hit':
+                return '💥';
+            case 'sunk':
+                return '❌';
+            default:
+                return '';
         }
     }
 
     updateTurnInfo(isPlayerTurn) {
-        console.log('UI updating turn info:', isPlayerTurn);
         this.turnInfo.textContent = isPlayerTurn ? 'Ваш ход' : 'Ход противника';
         this.turnArrow.textContent = isPlayerTurn ? '🟢' : '🔴';
     }
@@ -136,6 +103,25 @@ class UI {
     showEndScreen(isWinner) {
         this.gameScreen.style.display = 'none';
         this.endScreen.style.display = 'block';
-        document.getElementById('result').textContent = isWinner ? 'Вы победили!' : 'Вы проиграли!';
+        const resultElement = document.getElementById('result');
+        resultElement.textContent = isWinner ? 'Вы победили!' : 'Вы проиграли!';
+        resultElement.style.color = isWinner ? 'green' : 'red';
+        
+        const countdownElement = document.createElement('div');
+        countdownElement.id = 'countdown';
+        this.endScreen.appendChild(countdownElement);
+        
+        let countdown = 3;
+        const updateCountdown = () => {
+            countdownElement.textContent = `Перенаправление через ${countdown} секунды...`;
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                window.location.href = '/'; // Замените на URL вашей главной страницы
+            }
+            countdown--;
+        };
+        
+        updateCountdown();
+        const countdownInterval = setInterval(updateCountdown, 1000);
     }
 }

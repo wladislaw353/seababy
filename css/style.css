@@ -6,6 +6,8 @@ body {
     height: 100vh;
     margin: 0;
     background-color: #f0f0f0;
+    padding: 150px 0;
+    box-sizing: border-box;
 }
 
 #game-container {
@@ -26,7 +28,6 @@ body {
     width: 40px;
     height: 40px;
     background-color: #ffffff;
-    border: 1px solid #0077be;
     cursor: pointer;
     font-size: 24px;
     display: flex;
@@ -48,7 +49,12 @@ body {
 }
 
 .cell.ship {
-    background-color: #808080;
+    background-color: #cddccd;
+}
+
+.flex-container {
+    flex-wrap: wrap;
+    justify-content: center;
 }
 
 #game-info {
@@ -77,4 +83,14 @@ input {
     padding: 10px;
     font-size: 16px;
     margin: 10px;
+}
+
+@media (max-width: 900px) {
+    .board {
+        grid-template-columns: repeat(10, 30px);
+    }
+    .cell {
+        width: 30px;
+        height: 30px;
+    }
 }
